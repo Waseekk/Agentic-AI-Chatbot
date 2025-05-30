@@ -12,3 +12,4 @@ nltk
 textstat
 scikit-learn
 wordcloud
+duckduckgo-search
