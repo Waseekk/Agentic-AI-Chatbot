@@ -1,0 +1,15 @@
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+
+# Old files kept locally
+_old_*
+
+# Data
+files/
+index.faiss
+index.pkl
