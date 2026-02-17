@@ -20,9 +20,8 @@ from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 from dotenv import load_dotenv
 
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
 
 try:
     from groq import Groq
@@ -582,23 +581,28 @@ def _answer_groq(question: str, docs: List[Document], model: str) -> str:
 
 
 def _answer_openai(question: str, docs: List[Document], model: str, k: int) -> str:
-    """Call OpenAI via LangChain RetrievalQA chain."""
-    key = _get_api_key("OPENAI_API_KEY")
-    if not key:
+    """Call OpenAI directly with retrieved context."""
+    client = get_openai_client()
+    if not client:
         return "OpenAI API key not configured."
 
-    llm = ChatOpenAI(model=model, temperature=0, max_tokens=1024, api_key=key)
-    retriever = st.session_state.vectordb.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": k, "fetch_k": k * 3},
+    context = "\n\n".join(d.page_content for d in docs)
+    messages = [
+        {"role": "system", "content": (
+            "You are a helpful assistant. Answer the user's question using ONLY the provided "
+            "transcript context. If the context doesn't contain the answer, say so. "
+            "Be concise and cite timestamps when relevant."
+        )},
+        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+    ]
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0,
+        max_tokens=1024,
     )
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        return_source_documents=True,
-    )
-    result = qa.invoke({"query": question})
-    return result["result"]
+    return response.choices[0].message.content
 
 
 def _format_sources(docs: List[Document]) -> str:
