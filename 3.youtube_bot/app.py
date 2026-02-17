@@ -19,7 +19,7 @@ import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 from dotenv import load_dotenv
 
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
