@@ -409,9 +409,13 @@ def get_transcript_segments(url: str, language: str, allow_whisper: bool) -> Opt
         return None
 
     # Whisper fallback
-    st.info("No captions found. Transcribing with Whisper (paid)...")
-    mp3_path = download_audio(url)
-    transcript_text = transcribe_with_whisper(mp3_path)
+    try:
+        st.info("No captions found. Transcribing with Whisper (paid)...")
+        mp3_path = download_audio(url)
+        transcript_text = transcribe_with_whisper(mp3_path)
+    except Exception as e:
+        st.error(f"Whisper transcription failed: {e}")
+        return None
 
     # Convert plain text to pseudo-segments
     words = transcript_text.split()
