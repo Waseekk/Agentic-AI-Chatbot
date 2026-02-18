@@ -16,7 +16,7 @@ from typing import Optional, List, Dict
 
 import streamlit as st
 import yt_dlp
-from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
+from youtube_transcript_api import YouTubeTranscriptApi
 from dotenv import load_dotenv
 
 from langchain_core.documents import Document
@@ -288,9 +288,17 @@ def get_playlist_videos(url: str, max_videos: int = MAX_PLAYLIST_VIDEOS) -> List
 def fetch_captions_segments(video_id: str, language: str = "en") -> Optional[List[Dict]]:
     """Fetch YouTube captions as timestamped segments (FREE API)."""
     try:
-        return YouTubeTranscriptApi.get_transcript(video_id, languages=[language])
-    except (NoTranscriptFound, Exception):
-        return None
+        ytt_api = YouTubeTranscriptApi()
+        transcript = ytt_api.fetch(video_id, languages=[language])
+        return transcript.to_raw_data()
+    except Exception:
+        # Try without language filter as fallback
+        try:
+            ytt_api = YouTubeTranscriptApi()
+            transcript = ytt_api.fetch(video_id)
+            return transcript.to_raw_data()
+        except Exception:
+            return None
 
 
 @st.cache_data(show_spinner=False)
