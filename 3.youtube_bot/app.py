@@ -35,7 +35,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # ── Tunable constants ────────────────────────────────────────────────────────
 SESSION_TOKEN_BUDGET = 20_000
@@ -48,10 +48,9 @@ DEFAULT_RETRIEVER_K = 4
 MAX_QUESTION_LENGTH = 1000
 
 MODEL_COSTS = {  # per 1K tokens
-    "llama3-8b-8192": 0.0,
-    "llama3-70b-8192": 0.0,
-    "llama-3.1-8b-instant": 0.0,
-    "mixtral-8x7b-32768": 0.0,
+    "llama-3.1-8b-instant": 0.00005,
+    "llama-3.3-70b-versatile": 0.00059,
+    "openai/gpt-oss-20b": 0.000075,
     "gpt-4o-mini": 0.00015,
     "gpt-3.5-turbo": 0.0005,
     "gpt-4o": 0.005,
@@ -76,7 +75,13 @@ INJECTION_PATTERNS = re.compile(
 # Section 1: API Key Validation & Lazy Clients
 # ═══════════════════════════════════════════════════════════════════════════════
 def _get_api_key(name: str) -> Optional[str]:
-    """Read from st.secrets first (Streamlit Cloud), fall back to os.getenv."""
+    """User-entered key (session) -> st.secrets (Cloud) -> os.getenv (local)."""
+    # Check user-provided key first
+    session_key = f"user_{name.lower()}"
+    user_val = st.session_state.get(session_key)
+    if user_val:
+        return str(user_val)
+    # Streamlit Cloud secrets
     try:
         val = st.secrets.get(name)
         if val:
@@ -702,8 +707,47 @@ def render_custom_css():
     """, unsafe_allow_html=True)
 
 
+def _reset_clients():
+    """Remove cached clients so they re-init with new keys."""
+    for k in ["openai_client", "groq_client", "embeddings"]:
+        st.session_state.pop(k, None)
+
+
 def render_sidebar():
-    """Sidebar with model settings, usage dashboard, and API status."""
+    """Sidebar with API key input, model settings, usage dashboard, and API status."""
+
+    # ── Bring Your Own Key ──
+    with st.sidebar.expander("API Keys", expanded=False):
+        st.caption("Keys are stored only in your browser session.")
+        user_openai = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            value=st.session_state.get("user_openai_api_key", ""),
+            key="input_openai_key",
+            placeholder="sk-...",
+        )
+        user_groq = st.text_input(
+            "Groq API Key",
+            type="password",
+            value=st.session_state.get("user_groq_api_key", ""),
+            key="input_groq_key",
+            placeholder="gsk_...",
+        )
+        if st.button("Save Keys", use_container_width=True):
+            changed = False
+            if user_openai != st.session_state.get("user_openai_api_key", ""):
+                st.session_state["user_openai_api_key"] = user_openai
+                changed = True
+            if user_groq != st.session_state.get("user_groq_api_key", ""):
+                st.session_state["user_groq_api_key"] = user_groq
+                changed = True
+            if changed:
+                _reset_clients()
+                st.success("Keys saved for this session.")
+                st.rerun()
+            else:
+                st.info("No changes.")
+
     keys = validate_api_keys()
 
     # ── Model Settings ──
@@ -714,18 +758,17 @@ def render_sidebar():
         if keys["openai"]:
             providers.append("OpenAI")
         if not providers:
-            st.error("No API keys configured. Add keys to .env or .streamlit/secrets.toml")
-            providers = ["Groq"]  # show dropdown anyway
+            st.warning("No API keys found. Add your keys above or in .env")
+            providers = ["Groq", "OpenAI"]
 
         provider = st.selectbox("Provider", providers, index=0)
         st.session_state.provider = provider
 
         if provider == "Groq":
             model = st.selectbox("Model", [
-                "llama3-8b-8192",
-                "llama3-70b-8192",
+                "openai/gpt-oss-20b",
+                "llama-3.3-70b-versatile",
                 "llama-3.1-8b-instant",
-                "mixtral-8x7b-32768",
             ])
         else:
             model = st.selectbox("Model", [
@@ -953,7 +996,7 @@ def init_session_state():
         "urls": [],
         "video_metadata": {},
         "provider": "Groq",
-        "model": "llama3-8b-8192",
+        "model": "openai/gpt-oss-20b",
         "language": "en",
         "allow_whisper": False,
         "retriever_k": DEFAULT_RETRIEVER_K,
