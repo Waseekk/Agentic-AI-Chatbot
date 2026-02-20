@@ -8,6 +8,7 @@ Index YouTube videos and chat with their content using Groq (free) or OpenAI.
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 import re
+import json
 import time
 import shutil
 import logging
@@ -240,8 +241,57 @@ def get_playlist_videos(url: str, max_videos: int = MAX_PLAYLIST_VIDEOS) -> List
     return videos
 
 
+def _fetch_captions_ytdlp(video_id: str, language: str = "en") -> Optional[List[Dict]]:
+    """Fallback: extract subtitles via yt-dlp when youtube-transcript-api is blocked."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "subtitleslangs": [language],
+            "subtitlesformat": "json3",
+            "outtmpl": os.path.join(tmp_dir, "%(id)s"),
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        import glob as globmod
+        json3_files = globmod.glob(os.path.join(tmp_dir, f"*.{language}.json3"))
+        if not json3_files:
+            json3_files = globmod.glob(os.path.join(tmp_dir, "*.json3"))
+        if not json3_files:
+            return None
+        with open(json3_files[0], "r", encoding="utf-8") as f:
+            data = json.load(f)
+        segments = []
+        for event in data.get("events", []):
+            segs = event.get("segs")
+            if not segs:
+                continue
+            text = "".join(s.get("utf8", "") for s in segs).strip()
+            if not text or text == "\n":
+                continue
+            start_ms = event.get("tStartMs", 0)
+            duration_ms = event.get("dDurationMs", 0)
+            segments.append({
+                "text": text,
+                "start": start_ms / 1000.0,
+                "duration": duration_ms / 1000.0,
+            })
+        return segments if segments else None
+    except Exception as e:
+        logger.warning(f"yt-dlp subtitle fallback failed for {video_id}: {e}")
+        return None
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @st.cache_data(show_spinner=False)
 def fetch_captions_segments(video_id: str, language: str = "en") -> Optional[List[Dict]]:
+    # Method 1: youtube-transcript-api (fast, clean)
     try:
         ytt_api = YouTubeTranscriptApi()
         transcript = ytt_api.fetch(video_id, languages=[language])
@@ -252,7 +302,10 @@ def fetch_captions_segments(video_id: str, language: str = "en") -> Optional[Lis
             transcript = ytt_api.fetch(video_id)
             return transcript.to_raw_data()
         except Exception:
-            return None
+            pass
+    # Method 2: yt-dlp subtitle extraction (works on cloud servers)
+    logger.info(f"youtube-transcript-api failed for {video_id}, trying yt-dlp fallback")
+    return _fetch_captions_ytdlp(video_id, language)
 
 
 @st.cache_data(show_spinner=False)
